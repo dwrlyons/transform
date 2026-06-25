@@ -72,14 +72,18 @@ async function callClaude({ system, user, useSearch }) {
     system,
     messages: [{ role: "user", content: user }],
   };
-  if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
+  if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }];
   const res = await fetch("/api/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("The analysis request failed. Try running it again.");
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const m = data && data.error;
+    const msg = (m && (m.message || m)) || `Request failed (status ${res.status}).`;
+    throw new Error(typeof msg === "string" ? msg : "The analysis request failed. Try running it again.");
+  }
   return (data.content || [])
     .filter((b) => b.type === "text")
     .map((b) => b.text)

@@ -32,7 +32,7 @@ export async function callAnthropic(payload) {
     "x-api-key": apiKey,
     "anthropic-version": "2023-06-01",
   };
- 
+
   try {
     const res = await fetch(ANTHROPIC_URL, {
       method: "POST",
