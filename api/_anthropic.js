@@ -27,11 +27,6 @@ export async function callAnthropic(payload) {
     };
   }
 
-  // Enable the web search beta header only when a web_search tool is requested.
-  const usesWebSearch =
-    Array.isArray(payload.tools) &&
-    payload.tools.some((t) => t && typeof t.type === "string" && t.type.startsWith("web_search"));
-
   const headers = {
     "content-type": "application/json",
     "x-api-key": apiKey,
