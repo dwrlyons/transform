@@ -37,8 +37,7 @@ export async function callAnthropic(payload) {
     "x-api-key": apiKey,
     "anthropic-version": "2023-06-01",
   };
-  if (usesWebSearch) headers["anthropic-beta"] = "web-search-2025-03-05";
-
+ 
   try {
     const res = await fetch(ANTHROPIC_URL, {
       method: "POST",
