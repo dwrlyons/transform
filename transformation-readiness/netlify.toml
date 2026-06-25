@@ -1,0 +1,16 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Route the app's /api/messages call to the Netlify function.
+[[redirects]]
+  from = "/api/messages"
+  to = "/.netlify/functions/messages"
+  status = 200
+
+# Single-page app fallback for any other path.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
