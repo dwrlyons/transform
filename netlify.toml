@@ -3,10 +3,15 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Route the app's /api/messages call to the Netlify function.
+# Route the app's API calls to the Netlify functions.
 [[redirects]]
   from = "/api/messages"
   to = "/.netlify/functions/messages"
+  status = 200
+
+[[redirects]]
+  from = "/api/records"
+  to = "/.netlify/functions/records"
   status = 200
 
 # Single-page app fallback for any other path.

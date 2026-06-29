@@ -4,6 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/messages.js": { "maxDuration": 60 }
+    "api/messages.js": { "maxDuration": 60 },
+    "api/records.js": { "maxDuration": 15 }
   }
 }
