@@ -3,6 +3,7 @@ import {
   ArrowRight, ArrowLeft, Plus, Download, Library as LibraryIcon, Clock,
   Building2, Globe, Factory, Layers, BarChart3, Maximize2, Trash2,
   AlertTriangle, RefreshCw, GraduationCap, ShoppingCart, Cpu, Cloud, CloudOff,
+  Bookmark, BookmarkCheck,
 } from "lucide-react";
 
 /* ============================ brand + constants ============================ */
@@ -144,6 +145,7 @@ async function callClaude({ system, user, useSearch }) {
   const body = {
     model: "claude-sonnet-4-6",
     max_tokens: 2000,
+    temperature: 0.2,
     system,
     messages: [{ role: "user", content: user }],
   };
@@ -182,6 +184,12 @@ function overviewUser({ industry, company, geography, theme, n, horizon }) {
 Where a company is named, research its actual public strategy, recent announcements and stated leadership priorities. Identify the ${n} most material business transformation challenges over the next ${horizon}. A transformation challenge is a structural shift the organisation must make to stay competitive, compliant or viable, not a routine operational issue. ${focus}
 
 Themes (use these labels exactly): ${THEMES.join("; ")}.
+
+Selection and ordering rules (apply consistently on every run):
+- Choose the challenges with the greatest combination of strategic materiality and urgency over the horizon, not whatever is most recent in the news.
+- Rank them from most to least material and return them in that fixed order.
+- Prefer the company's own published strategy, annual report and investor materials as primary sources, over secondary commentary.
+- Use the company's established, widely used terminology so the challenge names are stable from one analysis to the next.
 
 Return ONLY this JSON:
 {"executiveSummary":"2 to 3 sentences on the transformation pressure facing this scope","challenges":[{"title":"short challenge name","theme":"one theme label","secondaryTheme":"another label or empty string","summary":"1 to 2 sentences on what must change and why"}]}
@@ -423,374 +431,293 @@ function Loading({ label }) {
   );
 }
 
-/* ============================ slide model ============================ */
-function buildSlides(scope, execSummary, challenges, portfolio) {
-  const slides = [];
-  const meta = [scope.industry, scope.geography, scope.theme !== "All themes" ? scope.theme : null, scope.horizon + " horizon"]
-    .filter(Boolean)
-    .join("  ·  ");
-  const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  slides.push({ type: "cover", company: scope.company || scope.industry, meta, date });
-  slides.push({ type: "summary", company: scope.company || scope.industry, execSummary, portfolio });
-
-  const ranked = challenges
-    .map((c, i) => ({ ...c, idx: i }))
-    .sort((a, b) => (a.score ?? 9) - (b.score ?? 9));
-  slides.push({
-    type: "portfolio",
-    rows: ranked.map((c) => ({
-      title: c.title,
-      theme: c.theme,
-      score: c.score,
-      band: c.band,
-      status: c.status,
-      topRoute:
-        c.detail?.capabilities?.length
-          ? c.detail.capabilities.reduce((a, b) => (clampScore(a.readiness) <= clampScore(b.readiness) ? a : b)).route
-          : null,
-    })),
-  });
-
-  challenges.forEach((c, i) => {
-    if (c.status === "done" && c.detail) {
-      const coi = c.detail.costOfInaction || {};
-      slides.push({
-        type: "challenge",
-        index: i,
-        total: challenges.length,
-        title: c.title,
-        theme: c.theme,
-        secondaryTheme: c.secondaryTheme,
-        score: c.score,
-        band: c.band,
-        summary: c.summary,
-        duration: c.detail.duration,
-        coi: [
-          ["Commercial", coi.commercial],
-          ["Operational", coi.operational],
-          ["Competitive", coi.competitive],
-          ["Regulatory", coi.regulatory],
-          ["Talent", coi.talent],
-        ].filter(([, v]) => v),
-        people: c.detail.peopleProcesses || [],
-      });
-      slides.push({
-        type: "sourcing",
-        index: i,
-        total: challenges.length,
-        title: c.title,
-        skills: c.detail.skills || {},
-        capabilities: (c.detail.capabilities || []).map((x) => ({ ...x, readiness: clampScore(x.readiness) })),
-      });
-    } else {
-      slides.push({ type: "pending", index: i, total: challenges.length, title: c.title, status: c.status });
-    }
-  });
-
-  return slides;
-}
-
-/* ============================ slide chrome ============================ */
-function SlideShell({ eyebrow, title, children, footerRight }) {
+/* ============================ navigable results view ============================ */
+function Eyebrow({ children, n }) {
   return (
-    <div style={{ position: "absolute", inset: 0, background: "#fff", padding: "56px 64px 48px" }}>
-      <div style={{ ...fMono, color: C.corange, fontSize: 15, fontWeight: 600, letterSpacing: 1 }}>{eyebrow}</div>
-      <div style={{ ...fDisplay, color: C.ink, fontSize: 38, fontWeight: 700, lineHeight: 1.08, marginTop: 4 }}>{title}</div>
-      <div style={{ height: 3, width: 56, background: C.corange, borderRadius: 2, margin: "16px 0 24px" }} />
-      <div style={{ position: "absolute", left: 64, right: 64, top: 168, bottom: 56 }}>{children}</div>
-      <div style={{ position: "absolute", left: 64, right: 64, bottom: 26, display: "flex", justifyContent: "space-between", ...fBody, color: "#9098A1", fontSize: 12, letterSpacing: 0.4 }}>
-        <span>CORNERSTONE · CONFIDENTIAL</span>
-        <span>{footerRight}</span>
-      </div>
+    <div className="flex items-center gap-2 mb-3">
+      {n && <span style={{ ...fMono, color: C.corange }} className="text-xs font-semibold">{n}</span>}
+      <span style={{ ...fBody, color: C.sub, letterSpacing: "0.08em" }} className="text-xs font-semibold uppercase">{children}</span>
+      <div className="flex-1 h-px" style={{ background: C.line }} />
     </div>
   );
 }
-
-function SlideCover({ s }) {
-  return (
-    <div style={{ position: "absolute", inset: 0, background: C.charcoal }}>
-      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 7, background: C.corange }} />
-      <div style={{ position: "absolute", left: 72, top: 64, display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 16, height: 16, background: C.corange }} />
-        <span style={{ ...fBody, color: "#fff", fontWeight: 700, letterSpacing: 3, fontSize: 15 }}>CORNERSTONE</span>
-      </div>
-      <div style={{ position: "absolute", left: 72, top: 250 }}>
-        <div style={{ ...fBody, color: C.corange, fontWeight: 700, letterSpacing: 3, fontSize: 15 }}>TRANSFORMATION & TALENT READINESS</div>
-        <div style={{ ...fBody, color: "#7E868F", letterSpacing: 2, fontSize: 13, marginTop: 26 }}>PREPARED FOR</div>
-        <div style={{ ...fDisplay, color: "#fff", fontWeight: 700, fontSize: 64, lineHeight: 1.02, marginTop: 4 }}>{s.company}</div>
-        <div style={{ ...fBody, color: "#AEB4BD", fontSize: 18, marginTop: 18 }}>{s.meta}</div>
-        <div style={{ ...fBody, color: "#7E868F", fontSize: 15, marginTop: 6 }}>{s.date}</div>
-      </div>
-    </div>
-  );
+function Chip({ children }) {
+  return <span className="inline-flex rounded-md px-2 py-1 text-xs font-medium" style={{ background: "#F1EFEA", color: C.ink, ...fBody }}>{children}</span>;
 }
 
-function SlideSummary({ s }) {
+function Overview({ scope, execSummary, challenges, portfolio, goTo }) {
+  const ranked = [...challenges].map((c, i) => ({ ...c, idx: i })).sort((a, b) => (a.score ?? 9) - (b.score ?? 9));
   return (
-    <SlideShell eyebrow="EXECUTIVE SUMMARY" title={s.company} footerRight="">
-      <div style={{ display: "flex", gap: 36, height: "100%" }}>
-        <div style={{ flex: 1.5 }}>
-          <p style={{ ...fBody, color: "#2A2F38", fontSize: 21, lineHeight: 1.5 }}>{s.execSummary || "Summary unavailable."}</p>
+    <div className="max-w-4xl mx-auto px-6 py-8">
+      <Eyebrow>Executive summary</Eyebrow>
+      <h2 style={{ ...fDisplay, color: C.ink, lineHeight: 1.15 }} className="text-3xl font-bold">{scope.company || scope.industry}</h2>
+      <p style={{ ...fBody, color: C.sub }} className="mt-1 text-sm">
+        {[scope.industry, scope.geography, scope.theme !== "All themes" ? scope.theme : null].filter(Boolean).join("  ·  ")}{"  ·  "}{scope.horizon} horizon
+      </p>
+      <p style={{ ...fBody, color: C.ink }} className="mt-5 text-base leading-relaxed">{execSummary || "Summary unavailable."}</p>
+
+      <div className="mt-8 rounded-xl p-6" style={{ background: C.charcoal }}>
+        <div className="flex items-center justify-between mb-3">
+          <span style={{ ...fBody, color: "#AEB4BD", letterSpacing: "0.08em" }} className="text-xs font-semibold uppercase">Portfolio readiness</span>
+          {portfolio != null && <BandPill band={bandFor(portfolio)} />}
         </div>
-        <div style={{ flex: 1, background: C.charcoal, borderRadius: 14, padding: 28, alignSelf: "flex-start" }}>
-          <div style={{ ...fBody, color: "#7E868F", fontWeight: 700, letterSpacing: 2, fontSize: 13 }}>PORTFOLIO READINESS</div>
-          {s.portfolio != null ? (
-            <>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, margin: "10px 0 14px" }}>
-                <span style={{ ...fDisplay, color: "#fff", fontWeight: 700, fontSize: 64, lineHeight: 1 }}>{round1(s.portfolio)}</span>
-                <span style={{ ...fMono, color: "#7E868F", fontSize: 22, marginBottom: 8 }}>/ 5</span>
-              </div>
-              <div style={{ height: 8, borderRadius: 99, background: "#2A323E", overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${(s.portfolio / 5) * 100}%`, background: bandColor(bandFor(s.portfolio)) }} />
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <BandPill band={bandFor(s.portfolio)} />
-              </div>
-            </>
-          ) : (
-            <div style={{ ...fBody, color: "#AEB4BD", marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
-              <Spinner color="#fff" size={14} /> Scoring as challenges complete.
+        {portfolio != null ? (
+          <>
+            <div className="flex items-end gap-2 mb-3">
+              <span style={{ ...fDisplay, color: "#fff" }} className="text-5xl font-bold tabular-nums">{round1(portfolio)}</span>
+              <span style={{ ...fMono, color: "#AEB4BD" }} className="text-lg mb-1">/ 5</span>
             </div>
-          )}
-        </div>
+            <Meter score={portfolio} h={14} />
+          </>
+        ) : (
+          <div className="flex items-center gap-3 text-sm" style={{ color: "#AEB4BD", ...fBody }}><Spinner color="#fff" /> Scoring challenges as they complete.</div>
+        )}
       </div>
-    </SlideShell>
-  );
-}
 
-function SlidePortfolio({ s }) {
-  return (
-    <SlideShell eyebrow="PORTFOLIO" title="Challenge portfolio" footerRight="Ordered by exposure, weakest first">
-      <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.2fr 1.1fr 0.8fr 1fr", background: "#F1EFEA", padding: "12px 18px", ...fBody, fontSize: 13, fontWeight: 700, color: C.sub, letterSpacing: 0.6 }}>
-          <span>CHALLENGE</span><span>THEME</span><span>READINESS</span><span>BAND</span><span>PRIORITY ROUTE</span>
-        </div>
-        {s.rows.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.5fr 1.2fr 1.1fr 0.8fr 1fr", alignItems: "center", padding: "14px 18px", borderTop: `1px solid ${C.line}`, background: "#fff" }}>
-            <span style={{ ...fBody, color: C.ink, fontWeight: 600, fontSize: 16 }}>{r.title}</span>
-            <span style={{ ...fBody, color: C.sub, fontSize: 14 }}>{r.theme}</span>
-            <span style={{ paddingRight: 18 }}>{r.status === "done" ? <Meter score={r.score} h={8} /> : <Spinner size={14} />}</span>
-            <span>{r.band ? <BandPill band={r.band} /> : null}</span>
-            <span>{r.topRoute ? <RouteBadge route={r.topRoute} size="sm" /> : null}</span>
-          </div>
-        ))}
-      </div>
-    </SlideShell>
-  );
-}
+      <Eyebrow>Challenge portfolio</Eyebrow>
+      <p style={{ ...fBody, color: C.sub }} className="-mt-1 mb-4 text-sm">Ordered by exposure, weakest first. Select any challenge for the full breakdown.</p>
 
-function SlideChallenge({ s }) {
-  return (
-    <SlideShell
-      eyebrow={`CHALLENGE ${String(s.index + 1).padStart(2, "0")} / ${String(s.total).padStart(2, "0")}`}
-      title={s.title}
-      footerRight=""
-    >
-      <div style={{ display: "flex", gap: 36, height: "100%" }}>
-        <div style={{ flex: 1.1, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center" }}>
-            <ThemeTag label={s.theme} />
-            {s.secondaryTheme && <ThemeTag label={s.secondaryTheme} secondary />}
-            {s.band && <BandPill band={s.band} />}
-            {s.score != null && <span style={{ ...fMono, color: bandColor(s.band), fontSize: 15, fontWeight: 600 }}>{round1(s.score)}/5</span>}
-          </div>
-          <p style={{ ...fBody, color: "#2A2F38", fontSize: 17, lineHeight: 1.5 }}>{s.summary}</p>
-          <div style={{ ...fBody, color: C.teal, fontWeight: 700, fontSize: 12, letterSpacing: 0.6, marginTop: 22 }}>HOW LONG THIS HAS BEEN LIVE</div>
-          <div style={{ ...fBody, color: C.ink, fontSize: 15, lineHeight: 1.45, marginTop: 4 }}>{s.duration}</div>
-          {s.people.length > 0 && (
-            <>
-              <div style={{ ...fBody, color: C.sub, fontWeight: 700, fontSize: 12, letterSpacing: 0.6, marginTop: 20 }}>PEOPLE PROCESSES</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-                {s.people.map((p, i) => (
-                  <span key={i} style={{ ...fBody, fontSize: 13, color: C.ink, background: "#F1EFEA", borderRadius: 6, padding: "4px 10px" }}>
-                    <b style={{ color: C.teal }}>{p.process}</b>
-                  </span>
-                ))}
+      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+        {ranked.map((c, i) => {
+          const topRoute = c.detail?.capabilities?.length ? c.detail.capabilities.reduce((a, b) => (clampScore(a.readiness) <= clampScore(b.readiness) ? a : b)).route : null;
+          return (
+            <button key={c.idx} onClick={() => goTo(c.idx)} className="w-full flex items-center gap-4 px-4 py-3.5 text-left" style={{ background: "#fff", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ ...fBody, color: C.ink }} className="text-sm font-semibold truncate">{c.title}</span>
+                  <ThemeTag label={c.theme} />
+                </div>
               </div>
-            </>
-          )}
+              <div style={{ width: 130 }} className="hidden sm:block">
+                {c.status === "done" ? <Meter score={c.score} h={7} /> : c.status === "error" ? <span className="text-xs" style={{ color: C.exposed, ...fBody }}>Failed</span> : <Spinner size={14} />}
+              </div>
+              <div style={{ width: 92 }} className="hidden md:flex justify-start">{topRoute && <RouteBadge route={topRoute} size="sm" />}</div>
+              {c.band ? <BandPill band={c.band} /> : <span style={{ width: 60 }} />}
+              <ArrowRight size={16} style={{ color: C.sub }} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InfoCard({ label, children, accent }) {
+  return (
+    <div className="rounded-lg p-4" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+      <div className="text-xs font-semibold uppercase mb-1.5" style={{ ...fBody, color: accent || C.sub, letterSpacing: "0.06em" }}>{label}</div>
+      <div style={{ ...fBody, color: C.ink }} className="text-sm leading-snug">{children}</div>
+    </div>
+  );
+}
+
+function Challenge({ c, index, total, onRetry }) {
+  if (c.status === "loading" || c.status === "pending") {
+    return <div className="max-w-4xl mx-auto px-6 py-16 flex flex-col items-center gap-4"><Spinner size={28} /><p style={{ ...fBody, color: C.sub }} className="text-sm">Analysing the challenge…</p></div>;
+  }
+  if (c.status === "error") {
+    return (
+      <div className="max-w-4xl mx-auto px-6 py-16 flex flex-col items-center gap-4 text-center">
+        <AlertTriangle size={26} style={{ color: C.exposed }} />
+        <p style={{ ...fBody, color: C.ink }} className="text-sm">This challenge did not come back cleanly.</p>
+        <button onClick={onRetry} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold" style={{ ...fBody, background: C.charcoal, color: "#fff" }}><RefreshCw size={14} /> Try again</button>
+      </div>
+    );
+  }
+  const d = c.detail;
+  const coi = d.costOfInaction || {};
+  const coiRows = [["Commercial", coi.commercial], ["Operational", coi.operational], ["Competitive", coi.competitive], ["Regulatory", coi.regulatory], ["Talent", coi.talent]].filter(([, v]) => v);
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="flex items-center gap-2 mb-2">
+        <span style={{ ...fMono, color: C.corange }} className="text-sm font-semibold">{String(index + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}</span>
+        <ThemeTag label={c.theme} />
+        {c.secondaryTheme && <ThemeTag label={c.secondaryTheme} secondary />}
+      </div>
+      <h2 style={{ ...fDisplay, color: C.ink, lineHeight: 1.15 }} className="text-2xl font-bold">{c.title}</h2>
+      <p style={{ ...fBody, color: C.sub }} className="mt-2 text-sm leading-relaxed">{c.summary}</p>
+
+      <div className="mt-4 flex items-center gap-4 rounded-lg px-4 py-3" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+        <div className="flex-1" style={{ maxWidth: 280 }}><Meter score={c.score} /></div>
+        <BandPill band={c.band} />
+        <span style={{ ...fBody, color: C.sub }} className="text-xs hidden sm:block">Challenge readiness</span>
+      </div>
+
+      <div className="mt-9">
+        <Eyebrow n="A">The challenge</Eyebrow>
+        <InfoCard label="How long this has been live" accent={C.teal}>{d.duration}</InfoCard>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {coiRows.map(([k, v]) => (
+            <div key={k} className="rounded-lg p-3.5" style={{ background: "#fff", border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.corange}` }}>
+              <div className="text-xs font-semibold uppercase mb-1" style={{ ...fBody, color: C.corange, letterSpacing: "0.05em" }}>{k}</div>
+              <div style={{ ...fBody, color: C.ink }} className="text-sm leading-snug">{v}</div>
+            </div>
+          ))}
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ ...fBody, color: C.corange, fontWeight: 700, fontSize: 12, letterSpacing: 0.6, marginBottom: 10 }}>COST OF INACTION</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {s.coi.map(([k, v]) => (
-              <div key={k} style={{ background: "#fff", border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.corange}`, borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ ...fBody, color: C.corange, fontWeight: 700, fontSize: 11, letterSpacing: 0.5 }}>{k.toUpperCase()}</div>
-                <div style={{ ...fBody, color: C.ink, fontSize: 13, lineHeight: 1.35, marginTop: 3 }}>{v}</div>
+        <p style={{ ...fBody, color: C.sub }} className="mt-2 text-xs">Cost of inaction within the horizon.</p>
+      </div>
+
+      {d.peopleProcesses?.length > 0 && (
+        <div className="mt-9">
+          <Eyebrow n="B">People process alignment</Eyebrow>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {d.peopleProcesses.map((p, i) => (
+              <div key={i} className="rounded-lg p-4" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+                <div style={{ ...fBody, color: C.teal }} className="text-sm font-semibold mb-1">{p.process}</div>
+                <div style={{ ...fBody, color: C.ink }} className="text-sm leading-snug">{p.role}</div>
               </div>
             ))}
           </div>
         </div>
-      </div>
-    </SlideShell>
-  );
-}
+      )}
 
-function SlideSourcing({ s }) {
-  const tech = s.skills?.technical || [];
-  const beh = s.skills?.behavioural || [];
-  return (
-    <SlideShell
-      eyebrow={`CHALLENGE ${String(s.index + 1).padStart(2, "0")} / ${String(s.total).padStart(2, "0")} · SKILLS & SOURCING`}
-      title={s.title}
-      footerRight=""
-    >
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
-        {(tech.length || beh.length) > 0 && (
-          <div style={{ display: "flex", gap: 28 }}>
-            {tech.length > 0 && (
-              <div style={{ flex: 1 }}>
-                <div style={{ ...fBody, color: C.sub, fontWeight: 700, fontSize: 11, letterSpacing: 0.5, marginBottom: 4 }}>TECHNICAL & DOMAIN</div>
-                <div style={{ ...fBody, color: C.ink, fontSize: 14 }}>{tech.join(", ")}</div>
-              </div>
-            )}
-            {beh.length > 0 && (
-              <div style={{ flex: 1 }}>
-                <div style={{ ...fBody, color: C.sub, fontWeight: 700, fontSize: 11, letterSpacing: 0.5, marginBottom: 4 }}>LEADERSHIP & BEHAVIOURAL</div>
-                <div style={{ ...fBody, color: C.ink, fontSize: 14 }}>{beh.join(", ")}</div>
-              </div>
-            )}
-          </div>
-        )}
-        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 0.9fr 1.6fr", background: "#F1EFEA", padding: "10px 16px", ...fBody, fontSize: 12, fontWeight: 700, color: C.sub, letterSpacing: 0.5 }}>
-            <span>CAPABILITY</span><span>READINESS</span><span>ROUTE</span><span>TRIGGER</span>
-          </div>
-          {s.capabilities.map((cap, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 0.9fr 1.6fr", alignItems: "center", padding: "12px 16px", borderTop: `1px solid ${C.line}`, background: "#fff" }}>
-              <span style={{ ...fBody, color: C.ink, fontWeight: 600, fontSize: 14 }}>{cap.name}</span>
-              <span style={{ paddingRight: 16 }}><Meter score={cap.readiness} h={7} /></span>
-              <span><RouteBadge route={cap.route} size="sm" /></span>
-              <span style={{ ...fBody, color: C.sub, fontSize: 12.5, lineHeight: 1.35 }}>{cap.trigger}</span>
+      {d.capabilities?.length > 0 && (
+        <div className="mt-9">
+          <Eyebrow n="C">Skills and capability readiness</Eyebrow>
+          {(d.skills?.technical?.length || d.skills?.behavioural?.length) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+              {d.skills?.technical?.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold mb-2" style={{ color: C.sub, ...fBody }}>Technical and domain skills</div>
+                  <div className="flex flex-wrap gap-1.5">{d.skills.technical.map((s, i) => <Chip key={i}>{s}</Chip>)}</div>
+                </div>
+              )}
+              {d.skills?.behavioural?.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold mb-2" style={{ color: C.sub, ...fBody }}>Leadership and behavioural skills</div>
+                  <div className="flex flex-wrap gap-1.5">{d.skills.behavioural.map((s, i) => <Chip key={i}>{s}</Chip>)}</div>
+                </div>
+              )}
             </div>
-          ))}
+          )}
+          <div className="grid grid-cols-1 gap-3">
+            {d.capabilities.map((cap, i) => {
+              const sc = clampScore(cap.readiness);
+              const signals = [["Internal supply", cap.internalSupply], ["Adjacency", cap.adjacency], ["External scarcity", cap.externalScarcity], ["Build time", cap.buildTime], ["Skill half-life", cap.halfLife]].filter(([, v]) => v);
+              return (
+                <div key={i} className="rounded-lg p-4" style={{ background: "#fff", border: `1px solid ${C.line}` }}>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <span style={{ ...fBody, color: C.ink }} className="text-sm font-semibold">{cap.name}</span>
+                    <div style={{ width: 120 }} className="shrink-0"><Meter score={sc} h={7} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2.5">
+                    {signals.map(([k, v]) => (
+                      <div key={k}>
+                        <div className="text-xs font-semibold uppercase mb-0.5" style={{ ...fBody, color: C.sub, letterSpacing: "0.04em" }}>{k}</div>
+                        <div style={{ ...fBody, color: C.ink }} className="text-xs leading-snug">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {cap.justification && <p className="mt-3 pt-3 text-xs leading-snug" style={{ ...fBody, color: C.sub, borderTop: `1px solid ${C.line}` }}>{cap.justification}</p>}
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 2 }}>
-          {Object.entries(ROUTE_META).map(([r, m]) => (
-            <span key={r} style={{ ...fBody, fontSize: 11.5, color: C.sub, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 2, background: m.color }} /> <b style={{ color: C.ink }}>{r}</b> {m.blurb}
-            </span>
-          ))}
+      )}
+
+      {d.capabilities?.length > 0 && (
+        <div className="mt-9 mb-4">
+          <Eyebrow n="D">Sourcing strategy</Eyebrow>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {Object.entries(ROUTE_META).map(([r, m]) => (
+              <span key={r} className="inline-flex items-center gap-1.5 text-xs" style={{ color: C.sub, ...fBody }}>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: m.color }} /><b style={{ color: C.ink }}>{r}</b> {m.blurb}
+              </span>
+            ))}
+          </div>
+          <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${C.line}` }}>
+            <div className="hidden md:grid px-4 py-2.5 text-xs font-semibold uppercase" style={{ background: "#F1EFEA", color: C.sub, gridTemplateColumns: "1.4fr 0.9fr 0.8fr 1.6fr 1.4fr", gap: 12, ...fBody, letterSpacing: "0.04em" }}>
+              <span>Capability</span><span>Readiness</span><span>Route</span><span>Trigger</span><span>Watch-out</span>
+            </div>
+            {d.capabilities.map((cap, i) => (
+              <div key={i} className="grid grid-cols-1 md:grid-cols-none px-4 py-3" style={{ background: "#fff", borderTop: `1px solid ${C.line}`, gridTemplateColumns: "1.4fr 0.9fr 0.8fr 1.6fr 1.4fr", gap: 12 }}>
+                <span style={{ ...fBody, color: C.ink }} className="text-sm font-medium">{cap.name}</span>
+                <div className="flex items-center" style={{ maxWidth: 90 }}><Meter score={clampScore(cap.readiness)} h={7} /></div>
+                <span><RouteBadge route={cap.route} size="sm" /></span>
+                <span style={{ ...fBody, color: C.sub }} className="text-xs leading-snug">{cap.trigger}</span>
+                <span style={{ ...fBody, color: C.sub }} className="text-xs leading-snug">{cap.watchOut}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
-    </SlideShell>
-  );
-}
-
-function SlidePending({ s }) {
-  return (
-    <SlideShell eyebrow={`CHALLENGE ${String(s.index + 1).padStart(2, "0")} / ${String(s.total).padStart(2, "0")}`} title={s.title} footerRight="">
-      <div style={{ display: "flex", alignItems: "center", gap: 14, color: C.sub, ...fBody, fontSize: 18 }}>
-        {s.status === "error" ? (
-          <><AlertTriangle size={22} style={{ color: C.exposed }} /> This challenge did not return cleanly.</>
-        ) : (
-          <><Spinner size={22} /> Analysing this challenge…</>
-        )}
-      </div>
-    </SlideShell>
-  );
-}
-
-function renderSlide(s) {
-  switch (s.type) {
-    case "cover": return <SlideCover s={s} />;
-    case "summary": return <SlideSummary s={s} />;
-    case "portfolio": return <SlidePortfolio s={s} />;
-    case "challenge": return <SlideChallenge s={s} />;
-    case "sourcing": return <SlideSourcing s={s} />;
-    default: return <SlidePending s={s} />;
-  }
-}
-
-/* ============================ deck (interactive presentation) ============================ */
-function Stage({ children }) {
-  const ref = useRef(null);
-  const [scale, setScale] = useState(1);
-  useEffect(() => {
-    const fit = () => {
-      if (ref.current) setScale(ref.current.clientWidth / 1280);
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, []);
-  return (
-    <div ref={ref} style={{ width: "100%", aspectRatio: "16 / 9", position: "relative", overflow: "hidden", borderRadius: 14, boxShadow: "0 12px 40px rgba(26,32,44,0.16)", background: "#fff" }}>
-      <div style={{ position: "absolute", top: 0, left: 0, width: 1280, height: 720, transform: `scale(${scale})`, transformOrigin: "top left" }}>
-        {children}
-      </div>
+      )}
     </div>
   );
 }
 
-function Deck({ scope, execSummary, challenges, portfolio, savedNote, onNew, onLibrary, onExport }) {
-  const slides = useMemo(() => buildSlides(scope, execSummary, challenges, portfolio), [scope, execSummary, challenges, portfolio]);
-  const [idx, setIdx] = useState(0);
-  const wrapRef = useRef(null);
-  useEffect(() => {
-    if (idx > slides.length - 1) setIdx(Math.max(0, slides.length - 1));
-  }, [slides.length, idx]);
-  const go = useCallback((d) => setIdx((i) => Math.max(0, Math.min(slides.length - 1, i + d))), [slides.length]);
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "ArrowRight") go(1);
-      if (e.key === "ArrowLeft") go(-1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [go]);
-  const fullscreen = () => {
-    const el = wrapRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el.requestFullscreen?.();
-  };
-
+function NavItem({ n, label, activeNow, onClick, status, band }) {
   return (
-    <div style={{ minHeight: "100vh", background: C.paper, ...fBody }}>
-      {/* top bar */}
-      <div style={{ background: C.charcoal, padding: "12px 20px", display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ width: 16, height: 16, background: C.corange, borderRadius: 4 }} />
-        <span style={{ color: "#fff", fontWeight: 700, fontSize: 14, letterSpacing: 1 }}>{scope.company || scope.industry}</span>
+    <button onClick={onClick} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left mb-0.5" style={{ background: activeNow ? "#252D38" : "transparent" }}>
+      {n && <span style={{ ...fMono, color: activeNow ? C.corange : "#69727E" }} className="text-xs shrink-0">{n}</span>}
+      <span style={{ ...fBody, color: activeNow ? "#fff" : "#C2C7CE" }} className="text-sm flex-1 truncate">{label}</span>
+      {status === "loading" || status === "pending" ? <Spinner size={11} color="#69727E" /> : status === "error" ? <span style={{ width: 8, height: 8, borderRadius: 99, background: "#69727E" }} /> : band ? <span style={{ width: 8, height: 8, borderRadius: 99, background: bandColor(band) }} /> : null}
+    </button>
+  );
+}
+
+function Sidebar({ scope, active, challenges, portfolio, onSelect, onReset, onLibrary }) {
+  return (
+    <aside className="hidden md:flex flex-col shrink-0" style={{ width: 280, background: C.charcoal, height: "100vh", position: "sticky", top: 0 }}>
+      <div className="px-5 pt-6 pb-5" style={{ borderBottom: "1px solid #2A323E" }}>
+        <div className="flex items-center gap-2 mb-4">
+          <div style={{ width: 18, height: 18, background: C.corange, borderRadius: 4 }} />
+          <span style={{ ...fBody, color: "#AEB4BD" }} className="text-xs font-semibold tracking-wide">CORNERSTONE</span>
+        </div>
+        <div style={{ ...fDisplay, color: "#fff" }} className="text-base font-bold leading-tight">{scope.company || scope.industry}</div>
         {portfolio != null && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: 4 }}>
-            <span style={{ ...fMono, color: "#fff", fontSize: 13 }}>{round1(portfolio)}<span style={{ color: "#69727E" }}>/5</span></span>
+          <div className="flex items-center gap-2 mt-3">
+            <span style={{ ...fMono, color: "#fff" }} className="text-sm">{round1(portfolio)}<span style={{ color: "#69727E" }}>/5</span></span>
             <BandPill band={bandFor(portfolio)} />
-          </span>
+          </div>
         )}
-        <div style={{ flex: 1 }} />
-        {savedNote && <span style={{ color: "#7E868F", fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>{savedNote === "cloud" ? <Cloud size={13} /> : <CloudOff size={13} />}{savedNote === "cloud" ? "Saved to cloud" : "Saved locally"}</span>}
-        <button onClick={onExport} style={btnStyle(C.corange, "#fff")}><Download size={15} /> PowerPoint</button>
-        <button onClick={onLibrary} style={btnStyle("#252D38", "#fff")}><LibraryIcon size={15} /> Library</button>
-        <button onClick={onNew} style={btnStyle("#252D38", "#AEB4BD")}><Plus size={15} /> New</button>
       </div>
-
-      {/* stage */}
-      <div ref={wrapRef} style={{ maxWidth: 1120, margin: "0 auto", padding: "28px 24px 8px" }}>
-        <Stage>{renderSlide(slides[idx] || slides[0])}</Stage>
-
-        {/* controls */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginTop: 18 }}>
-          <button onClick={() => go(-1)} disabled={idx === 0} style={navBtn(idx === 0)}><ArrowLeft size={18} /></button>
-          <span style={{ ...fMono, color: C.sub, fontSize: 14, minWidth: 70, textAlign: "center" }}>
-            {idx + 1} / {slides.length}
-          </span>
-          <button onClick={() => go(1)} disabled={idx === slides.length - 1} style={navBtn(idx === slides.length - 1)}><ArrowRight size={18} /></button>
-          <button onClick={fullscreen} style={{ ...navBtn(false), marginLeft: 8 }} title="Fullscreen"><Maximize2 size={16} /></button>
-        </div>
-
-        {/* dots */}
-        <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap", margin: "14px 0 28px" }}>
-          {slides.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => setIdx(i)}
-              title={s.title || s.type}
-              style={{ width: i === idx ? 22 : 9, height: 9, borderRadius: 99, border: "none", cursor: "pointer", background: i === idx ? C.corange : "#D8D3CA", transition: "width .2s" }}
-            />
-          ))}
-        </div>
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <NavItem label="Overview" activeNow={active === "overview"} onClick={() => onSelect("overview")} />
+        <div style={{ ...fBody, color: "#69727E", letterSpacing: "0.08em" }} className="px-3 mt-4 mb-1.5 text-xs font-semibold uppercase">Challenges</div>
+        {challenges.map((c, i) => (
+          <NavItem key={i} n={String(i + 1).padStart(2, "0")} label={c.title} activeNow={active === i} onClick={() => onSelect(i)} status={c.status} band={c.band} />
+        ))}
+      </nav>
+      <div className="px-3 py-4 flex flex-col gap-1.5" style={{ borderTop: "1px solid #2A323E" }}>
+        <button onClick={onLibrary} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium" style={{ ...fBody, color: "#AEB4BD", background: "transparent" }}><LibraryIcon size={15} /> Library</button>
+        <button onClick={onReset} className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium" style={{ ...fBody, color: "#AEB4BD", background: "transparent" }}><Plus size={15} /> New analysis</button>
       </div>
+    </aside>
+  );
+}
+
+function TopActions({ onExport, onBookmark, saved, savedNote }) {
+  return (
+    <div className="hidden md:flex items-center justify-end gap-2.5 px-6 pt-5">
+      {saved && (
+        <span style={{ ...fBody, color: C.sub }} className="text-xs mr-1 inline-flex items-center gap-1.5">
+          {savedNote === "cloud" ? <Cloud size={13} /> : <CloudOff size={13} />}{savedNote === "cloud" ? "Saved to library" : "Saved to this browser"}
+        </span>
+      )}
+      <button onClick={onExport} className="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold" style={{ ...fBody, color: "#fff", background: C.charcoal }}>
+        <Download size={15} /> Export to PowerPoint
+      </button>
+      <button onClick={onBookmark} title={saved ? "Saved to library — click to remove" : "Save to library"} aria-pressed={saved}
+        className="flex items-center justify-center rounded-lg" style={{ width: 38, height: 38, border: `1px solid ${saved ? C.corange : C.line}`, background: saved ? C.corange : "#fff", color: saved ? "#fff" : C.ink }}>
+        {saved ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
+      </button>
+    </div>
+  );
+}
+
+function MobileBar({ active, challenges, onSelect, onReset, onLibrary, onExport, onBookmark, saved }) {
+  const val = active === "overview" ? "overview" : String(active);
+  return (
+    <div className="md:hidden sticky top-0 z-10 flex items-center gap-2 px-3 py-2.5" style={{ background: C.charcoal }}>
+      <select value={val} onChange={(e) => onSelect(e.target.value === "overview" ? "overview" : Number(e.target.value))} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ ...fBody, background: "#252D38", color: "#fff", border: "none" }}>
+        <option value="overview">Overview</option>
+        {challenges.map((c, i) => <option key={i} value={i}>{`${i + 1}. ${c.title}`}</option>)}
+      </select>
+      <button onClick={onBookmark} aria-pressed={saved} className="rounded-lg p-2" style={{ background: saved ? C.corange : "#252D38", color: saved ? "#fff" : "#AEB4BD" }} aria-label="Save to library">{saved ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}</button>
+      <button onClick={onExport} className="rounded-lg p-2" style={{ background: "#252D38", color: "#AEB4BD" }} aria-label="Export to PowerPoint"><Download size={16} /></button>
+      <button onClick={onLibrary} className="rounded-lg p-2" style={{ background: "#252D38", color: "#AEB4BD" }} aria-label="Library"><LibraryIcon size={16} /></button>
+      <button onClick={onReset} className="rounded-lg p-2" style={{ background: "#252D38", color: "#AEB4BD" }} aria-label="New analysis"><Plus size={16} /></button>
     </div>
   );
 }
@@ -998,8 +925,11 @@ export default function App() {
   const [records, setRecords] = useState([]);
   const [recSource, setRecSource] = useState(null);
   const [recLoading, setRecLoading] = useState(false);
+  const [active, setActive] = useState("overview");
+  const [saved, setSaved] = useState(false);
   const runId = useRef(0);
   const currentId = useRef(null);
+  const savedRef = useRef(false);
 
   const initial = { company: "", industry: "", geography: "", theme: "All themes", n: 4, horizon: "3 years" };
 
@@ -1037,11 +967,9 @@ export default function App() {
     }
   }
 
-  async function persist(s, summary, list) {
-    const port = (() => {
-      const sc = list.filter((c) => c.score != null).map((c) => c.score);
-      return sc.length ? round1(mean(sc)) : null;
-    })();
+  async function persistList(s, summary, list) {
+    const sc = list.filter((c) => c.score != null).map((c) => c.score);
+    const port = sc.length ? round1(mean(sc)) : null;
     const rec = {
       id: currentId.current,
       createdAt: new Date().toISOString(),
@@ -1057,13 +985,35 @@ export default function App() {
     const where = await storeSave(rec);
     setSavedNote(where);
     setCloud(where);
+    return where;
+  }
+
+  // Save is now a deliberate action via the bookmark control, not automatic.
+  async function toggleSave() {
+    if (saved) {
+      const ok = window.confirm("Remove this report from the library? This deletes the saved record.");
+      if (!ok) return;
+      savedRef.current = false;
+      setSaved(false);
+      setSavedNote(null);
+      await storeDelete(currentId.current);
+    } else {
+      savedRef.current = true;
+      setSaved(true);
+      await persistList(scope, execSummary, challenges);
+    }
+  }
+  function doExport() {
+    exportPptx(scope, execSummary, challenges, portfolio);
   }
 
   async function run(form) {
     const myRun = ++runId.current;
     const s = { ...form, n: Number(form.n) };
     currentId.current = "rec_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    savedRef.current = false; setSaved(false);
     setScope(s); setError(null); setExecSummary(""); setChallenges([]); setSavedNote(null);
+    setActive("overview");
     setLoadingLabel(`Researching ${s.company || s.industry}`); setView("loading");
     try {
       const ovText = await callClaude({ system: overviewSystem(), user: overviewUser(s), useSearch: true });
@@ -1082,9 +1032,9 @@ export default function App() {
         if (runId.current !== myRun) return;
         await loadDetail(i, stubs[i], s, myRun);
       }
-      // read back the latest challenges for persistence
+      // if the user bookmarked mid-run, keep the saved record in sync
       setChallenges((cur) => {
-        if (runId.current === myRun) persist(s, ov.executiveSummary || "", cur);
+        if (runId.current === myRun && savedRef.current) persistList(s, ov.executiveSummary || "", cur);
         return cur;
       });
     } catch (e) {
@@ -1109,16 +1059,24 @@ export default function App() {
     setScope(rec.scope);
     setExecSummary(rec.execSummary || "");
     setChallenges((rec.challenges || []).map((c) => ({ ...c, status: c.status || "done" })));
-    setSavedNote(null);
+    savedRef.current = true;
+    setSaved(true);
+    setSavedNote(recSource || cloud || "local");
+    setActive("overview");
     setView("present");
+  }
+  function retry(i) {
+    loadDetail(i, challenges[i], scope, runId.current);
   }
   async function removeRecord(id) {
     await storeDelete(id);
     setRecords((r) => r.filter((x) => x.id !== id));
+    if (currentId.current === id) { savedRef.current = false; setSaved(false); setSavedNote(null); }
   }
   function reset() {
     runId.current++;
-    setView("intake"); setError(null); setChallenges([]); setSavedNote(null);
+    savedRef.current = false; setSaved(false);
+    setView("intake"); setError(null); setChallenges([]); setSavedNote(null); setActive("overview");
   }
 
   if (view === "intake") return <Intake initial={initial} onRun={run} onLibrary={openLibrary} error={error} cloud={cloud} />;
@@ -1127,15 +1085,17 @@ export default function App() {
     return <Library records={records} source={recSource} loading={recLoading} onOpen={openRecord} onDelete={removeRecord} onBack={reset} />;
 
   return (
-    <Deck
-      scope={scope}
-      execSummary={execSummary}
-      challenges={challenges}
-      portfolio={portfolio}
-      savedNote={savedNote}
-      onNew={reset}
-      onLibrary={openLibrary}
-      onExport={() => exportPptx(scope, execSummary, challenges, portfolio)}
-    />
+    <div style={{ ...fBody, background: C.paper, minHeight: "100vh" }} className="flex">
+      <Sidebar scope={scope} active={active} challenges={challenges} portfolio={portfolio} onSelect={setActive} onReset={reset} onLibrary={openLibrary} />
+      <main className="flex-1 min-w-0">
+        <MobileBar active={active} challenges={challenges} onSelect={setActive} onReset={reset} onLibrary={openLibrary} onExport={doExport} onBookmark={toggleSave} saved={saved} />
+        <TopActions onExport={doExport} onBookmark={toggleSave} saved={saved} savedNote={savedNote} />
+        {active === "overview" ? (
+          <Overview scope={scope} execSummary={execSummary} challenges={challenges} portfolio={portfolio} goTo={setActive} />
+        ) : (
+          <Challenge c={challenges[active]} index={active} total={challenges.length} onRetry={() => retry(active)} />
+        )}
+      </main>
+    </div>
   );
 }

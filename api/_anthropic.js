@@ -13,6 +13,7 @@ export function sanitize(body) {
     messages: Array.isArray(body.messages) ? body.messages : [],
   };
   if (typeof body.system === "string") out.system = body.system;
+  if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (Array.isArray(body.tools)) out.tools = body.tools; // e.g. web_search for research
   if (Array.isArray(body.mcp_servers)) out.mcp_servers = body.mcp_servers; // optional connectors
   return out;
